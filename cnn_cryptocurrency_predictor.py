@@ -23,15 +23,6 @@ def doublewrap(function):
 
 @doublewrap
 def define_scope(function, scope=None, *args, **kwargs):
-    """
-    A decorator for functions that define TensorFlow operations. The wrapped
-    function will only be executed once. Subsequent calls to it will directly
-    return the result so that operations are added to the graph only once.
-    The operations added by the function live within a tf.variable_scope(). If
-    this decorator is used with arguments, they will be forwarded to the
-    variable scope. The scope name defaults to the name of the wrapped
-    function.
-    """
     attribute = '_cache_' + function.__name__
     name = scope or function.__name__
     @property
@@ -45,43 +36,24 @@ def define_scope(function, scope=None, *args, **kwargs):
 
 
 class Model:
-    def __init__(self,
-        image,
-        label,
-        dropout=0.5,
-        conv_size=9,
-        conv_stride=1,
-        ksize=2,
-        pool_stride=2,
-        filter_num=64,
-        padding="SAME"):
-
+    def __init__(self, image, label, dropout=0.5, filter_num=64):
         self.image = image
         self.label = label
         self.dropout = dropout
-
-        self.conv_size = conv_size
-        self.conv_stride = conv_stride
-        self.ksize = ksize
-        self.pool_stride = pool_stride
-        self.padding = padding
         self.filter_num = filter_num
-
+        # define tf options only once; here
         self.prediction
         self.optimize
         self.accuracy
 
     @define_scope
     def prediction(self):
-        with tf.variable_scope("model") as scope:
-            #input image
-            input_image = self.image
-
+        with tf.variable_scope('model') as scope:
             layers = []
 
             # conv_1 [batch, ngf, 9] => [batch, 64, ngf]
-            with tf.variable_scope("conv_1"):
-                output = relu(conv1d(input_image, self.filter_num, name='conv_1'))
+            with tf.variable_scope('conv_1'):
+                output = relu(conv1d(self.image, self.filter_num, name='conv_1'))
                 layers.append(output)
 
             # conv_2 - conv_6
@@ -94,8 +66,8 @@ class Model:
             ]
 
             # adding layers
-            for _, (out_channels, dropout) in enumerate(layer_specs):
-                with tf.variable_scope("conv_%d" % (len(layers) + 1)):
+            for out_channels,dropout in layer_specs:
+                with tf.variable_scope('conv_%d' % (len(layers) + 1)):
                     rectified = lrelu(layers[-1], 0.2)
                     # [batch, in_width, in_channels] => [batch, in_width/2, out_channels]
                     convolved = conv1d(rectified, out_channels)
@@ -172,7 +144,7 @@ class DataSet(object):
 
 def conv1d(input, output_dim,
            conv_w=9, conv_s=2,
-           padding="SAME", name="conv1d",
+           padding='SAME', name='conv1d',
            stddev=0.02, bias=False):
     with tf.variable_scope(name):
         w = tf.get_variable('w', [conv_w, input.get_shape().as_list()[-1], output_dim],
@@ -184,14 +156,14 @@ def conv1d(input, output_dim,
         return c
 
 
-def batchnorm(input, name="batchnorm", is_2d=False):
+def batchnorm(input, name='batchnorm', is_2d=False):
     with tf.variable_scope(name):
         input = tf.identity(input)
         channels = input.get_shape()[-1]
-        offset = tf.get_variable("offset", [channels],
+        offset = tf.get_variable('offset', [channels],
                                  dtype=tf.float32,
                                  initializer=tf.zeros_initializer())
-        scale = tf.get_variable("scale", [channels],
+        scale = tf.get_variable('scale', [channels],
                                 dtype=tf.float32,
                                 initializer=tf.random_normal_initializer(1.0, 0.02))
         if is_2d:
@@ -204,7 +176,7 @@ def batchnorm(input, name="batchnorm", is_2d=False):
         return normalized
 
 
-def fully_connected(input, output_dim, name="fc", stddev=0.02):
+def fully_connected(input, output_dim, name='fc', stddev=0.02):
     with tf.variable_scope(name):
         unfolded_dim = functools.reduce(lambda x, y: x*y, input.get_shape().as_list()[1:])
         w = tf.get_variable('w',
@@ -216,12 +188,12 @@ def fully_connected(input, output_dim, name="fc", stddev=0.02):
 
 
 def lrelu(x, a):
-    with tf.name_scope("lrelu"):
+    with tf.name_scope('lrelu'):
         x = tf.identity(x)
         return (0.5 * (1 + a)) * x + (0.5 * (1 - a)) * tf.abs(x)
 
 
-def relu(x, name="relu"):
+def relu(x, name='relu'):
     return tf.nn.relu(x)
 
 
@@ -275,7 +247,9 @@ def xform_seq3d_array(df, moving_window=64, steps_ahead_to_predict=5, train_test
 
 
 
-print('Predicting if bitcoin price goes up or down 5 minutes ahead. The accurracy should come up to above 95% after 5 minutes of GPU training or so.')
+print('+' + '-'*143 + '+')
+print('| Predicting if bitcoin price goes up or down 5 minutes ahead. The accurracy should come up to above 95% after 5 minutes of GPU training or so. |')
+print('+' + '-'*143 + '+')
 # load data
 coin_fname = 'data/bitcoin_usdt_1m.json'
 df = pd.read_json(coin_fname, orient='split')
@@ -303,12 +277,12 @@ with tf.Session(config=config) as sess:
     except:
             sess.run(tf.global_variables_initializer())
             print('first run, no previous model to load')
-    for i in range(100000):
+    for i in range(10000):
         images, labels = dataset.train.next_batch(400)
         if i % 10 == 0:
             images_eval, labels_eval = dataset.test.next_batch(1000)
             accuracy = sess.run(model.accuracy, {image: images_eval, label: labels_eval, dropout: 1.0})
-            print('\rstep %d, accuracy %g%%   ' % (i, accuracy*100), end='')
+            print('\rstep %d, accuracy %.1f%%   ' % (i, accuracy*100), end='')
         sess.run(model.optimize, {image: images, label: labels, dropout: 0.5})
 
         if (i > 0) and (i % 500 == 0):
@@ -317,4 +291,4 @@ with tf.Session(config=config) as sess:
 
     images_eval, labels_eval = dataset.test.next_batch(1000)
     accuracy = sess.run(model.accuracy, {image: images_eval, label: labels_eval, dropout: 1.0})
-    print('final accuracy on testing set: %g%%' % (accuracy*100))
+    print('final accuracy on testing set: %.1f%%' % (accuracy*100))
