@@ -79,7 +79,7 @@ class Model:
                     layers.append(output)
 
             # fc1
-            h_fc1 = relu(fully_connected(layers[-1], 256, name='fc1'))
+            h_fc1 = relu(fully_connected(layers[-1], self.filter_num*2, name='fc1'))
             # dropout
             h_fc1_drop = tf.nn.dropout(h_fc1, self.dropout)
             # fc2
@@ -204,9 +204,10 @@ def xform_seq3d_array(df, moving_window=64, steps_ahead_to_predict=5, train_test
        the next N timestep, where N is steps_ahead_to_predict.'''
     def process_data(df):
         dfs = []
+        df1 = df
         for i in range(moving_window):
-            dfs += [df]
-            df = df.shift()
+            dfs += [df1]
+            df1 = df1.shift()
         df_seq = pd.concat(dfs, axis=1)
         df_seq = df_seq.iloc[moving_window:-steps_ahead_to_predict]
         values = df_seq.values.reshape(-1, moving_window, len(df.columns))
@@ -255,7 +256,7 @@ coin_fname = 'data/bitcoin_usdt_1m.json'
 df = pd.read_json(coin_fname, orient='split')
 minutes_ahead_to_predict = 5
 dataset = xform_seq3d_array(df, steps_ahead_to_predict=minutes_ahead_to_predict)
-print('bitcoin 1-minute data loaded')
+print('bitcoin 1-minute data loaded (%i samples)' % len(df))
 
 # setup graph
 image = tf.placeholder(tf.float32, [None, 64, 9])
@@ -277,15 +278,15 @@ with tf.Session(config=config) as sess:
     except:
             sess.run(tf.global_variables_initializer())
             print('first run, no previous model to load')
-    for i in range(10000):
-        images, labels = dataset.train.next_batch(400)
-        if i % 10 == 0:
+    for i in range(1000):
+        images, labels = dataset.train.next_batch(3150)
+        if i % 5 == 0:
             images_eval, labels_eval = dataset.test.next_batch(1000)
             accuracy = sess.run(model.accuracy, {image: images_eval, label: labels_eval, dropout: 1.0})
             print('\rstep %d, accuracy %.1f%%   ' % (i, accuracy*100), end='')
         sess.run(model.optimize, {image: images, label: labels, dropout: 0.5})
 
-        if (i > 0) and (i % 500 == 0):
+        if (i > 0) and (i % 50 == 0):
             saver.save(sess, checkpoint_fname)
             print('\nmodel saved')
 
